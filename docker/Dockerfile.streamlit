@@ -1,0 +1,25 @@
+FROM python:3.11-slim-bullseye
+
+# Instala dependências do sistema
+RUN apt-get update && apt-get install -y \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Configura ambiente
+WORKDIR /app
+ENV PYTHONUNBUFFERED=1
+
+# Instala dependências Python
+COPY panel/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copia aplicação
+COPY ./panel /app
+
+# Expõe porta
+EXPOSE 8501
+
+# Script de entrada
+COPY ./docker/entrypoint-streamlit.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+ENTRYPOINT ["/entrypoint.sh"] 

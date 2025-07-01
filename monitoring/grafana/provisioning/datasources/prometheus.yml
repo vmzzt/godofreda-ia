@@ -1,0 +1,69 @@
+# ================================
+# GODOFREDA GRAFANA DATASOURCES
+# ================================
+# Configuração de fontes de dados para Grafana
+# ================================
+
+apiVersion: 1
+
+datasources:
+  # ================================
+  # PROMETHEUS - MÉTRICAS
+  # ================================
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: true
+    jsonData:
+      timeInterval: "15s"
+      queryTimeout: "60s"
+      httpMethod: "POST"
+      manageAlerts: true
+      alertmanagerUid: "alertmanager"
+      disableRecordingRules: false
+      incrementalQueryOverlapWindow: "10m"
+    secureJsonData: {}
+    version: 1
+    readOnly: false
+
+  # ================================
+  # LOKI - LOGS
+  # ================================
+  - name: Loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    isDefault: false
+    editable: true
+    jsonData:
+      maxLines: 1000
+      derivedFields:
+        - datasourceUid: "prometheus"
+          matcherRegex: "traceID=(\\w+)"
+          name: "TraceID"
+          url: "$${__value.raw}"
+      httpMethod: "POST"
+      manageAlerts: false
+      queryTimeout: "60s"
+    secureJsonData: {}
+    version: 1
+    readOnly: false
+
+  # ================================
+  # ALERTMANAGER - ALERTAS
+  # ================================
+  - name: AlertManager
+    type: alertmanager
+    access: proxy
+    url: http://alertmanager:9093
+    isDefault: false
+    editable: true
+    jsonData:
+      implementation: "prometheus"
+      handleGrafanaManagedAlerts: true
+      alertmanagerImplementation: "prometheus"
+    secureJsonData: {}
+    version: 1
+    readOnly: false 

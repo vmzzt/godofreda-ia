@@ -1,0 +1,88 @@
+# ================================
+# GODOFREDA API DEPENDENCIES
+# ================================
+# Este arquivo contém todas as dependências Python necessárias
+# para o sistema Godofreda IA VTuber
+# ================================
+
+# ================================
+# WEB FRAMEWORK & SERVER
+# ================================
+# FastAPI - Framework web moderno e rápido
+fastapi==0.115.6
+
+# Uvicorn - Servidor ASGI para FastAPI
+uvicorn[standard]==0.32.1
+
+# Python Multipart - Para upload de arquivos
+python-multipart==0.0.20
+
+# ================================
+# MONITORING & OBSERVABILITY
+# ================================
+# Prometheus Client - Métricas e monitoramento
+prometheus-client==0.21.1
+
+# ================================
+# TEXT-TO-SPEECH & AUDIO
+# ================================
+# Coqui TTS - Síntese de voz avançada
+TTS==0.22.0
+
+# PyTorch - Framework de ML (requerido pelo TTS)
+torch==2.1.2
+
+# TorchAudio - Processamento de áudio
+torchaudio==2.1.2
+
+# ================================
+# DATA PROCESSING & ML
+# ================================
+# Pandas - Manipulação de dados
+pandas==1.5.3
+
+# NumPy - Computação numérica
+numpy==1.24.3
+
+# ================================
+# UTILITIES & HELPERS
+# ================================
+# Python Dotenv - Gerenciamento de variáveis de ambiente
+python-dotenv==1.0.1
+
+# ================================
+# SECURITY & CRYPTOGRAPHY
+# ================================
+# Cryptography - Funções criptográficas
+cryptography==41.0.7
+
+# ================================
+# LLM & AI INTEGRATION
+# ================================
+# Integração com Ollama via HTTP (use httpx ou requests)
+httpx==0.27.0
+
+# ================================
+# CACHE & SESSIONS
+# ================================
+# Redis - Cache e sessões
+redis==5.2.1
+aioredis==2.0.1
+
+# ================================
+# DEVELOPMENT & TESTING (OPCIONAL)
+# ================================
+# Descomente as linhas abaixo para desenvolvimento
+# pytest==8.2.2
+# pytest-asyncio==0.24.0
+# black==24.4.0
+# flake8==7.1.1
+
+# ================================
+# NOTAS DE COMPATIBILIDADE
+# ================================
+# - TTS 0.22.0 é compatível com torch 2.1.2
+# - pandas 1.5.3 é compatível com TTS 0.22.0
+# - fastapi e uvicorn são testados juntos
+# - redis e aioredis para cache distribuído
+# ================================

@@ -1,0 +1,210 @@
+# ================================
+# GODOFREDA PROMETHEUS RULES
+# ================================
+# Regras de alerta e métricas para monitoramento
+# ================================
+
+groups:
+  # ================================
+  # GODOFREDA API ALERTS
+  # ================================
+  - name: godofreda-api
+    rules:
+      # ================================
+      # AVAILABILITY ALERTS
+      # ================================
+      - alert: GodofredaAPIDown
+        expr: up{job="godofreda-api"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: godofreda-api
+        annotations:
+          summary: "Godofreda API está fora do ar"
+          description: "A API da Godofreda não está respondendo há mais de 1 minuto"
+
+      - alert: GodofredaAPIHighLatency
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{job="godofreda-api"}[5m])) > 2
+        for: 2m
+        labels:
+          severity: warning
+          service: godofreda-api
+        annotations:
+          summary: "Godofreda API com alta latência"
+          description: "95% das requisições estão levando mais de 2 segundos"
+
+      # ================================
+      # ERROR RATE ALERTS
+      # ================================
+      - alert: GodofredaAPIHighErrorRate
+        expr: rate(http_requests_total{job="godofreda-api", status=~"5.."}[5m]) / rate(http_requests_total{job="godofreda-api"}[5m]) > 0.05
+        for: 2m
+        labels:
+          severity: warning
+          service: godofreda-api
+        annotations:
+          summary: "Godofreda API com alta taxa de erro"
+          description: "Mais de 5% das requisições estão retornando erro 5xx"
+
+      # ================================
+      # TTS SERVICE ALERTS
+      # ================================
+      - alert: TTSServiceDown
+        expr: up{job="godofreda-api"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: tts
+        annotations:
+          summary: "Serviço TTS está fora do ar"
+          description: "O serviço de síntese de voz não está funcionando"
+
+      # ================================
+      # LLM SERVICE ALERTS
+      # ================================
+      - alert: LLMServiceDown
+        expr: up{job="godofreda-api"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: llm
+        annotations:
+          summary: "Serviço LLM está fora do ar"
+          description: "O serviço de linguagem natural não está funcionando"
+
+  # ================================
+  # SYSTEM ALERTS
+  # ================================
+  - name: system
+    rules:
+      # ================================
+      # MEMORY ALERTS
+      # ================================
+      - alert: HighMemoryUsage
+        expr: (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes > 0.85
+        for: 5m
+        labels:
+          severity: warning
+          service: system
+        annotations:
+          summary: "Alto uso de memória"
+          description: "Uso de memória está acima de 85%"
+
+      - alert: CriticalMemoryUsage
+        expr: (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes > 0.95
+        for: 2m
+        labels:
+          severity: critical
+          service: system
+        annotations:
+          summary: "Uso crítico de memória"
+          description: "Uso de memória está acima de 95%"
+
+      # ================================
+      # DISK ALERTS
+      # ================================
+      - alert: HighDiskUsage
+        expr: (node_filesystem_size_bytes - node_filesystem_free_bytes) / node_filesystem_size_bytes > 0.85
+        for: 5m
+        labels:
+          severity: warning
+          service: system
+        annotations:
+          summary: "Alto uso de disco"
+          description: "Uso de disco está acima de 85%"
+
+      - alert: CriticalDiskUsage
+        expr: (node_filesystem_size_bytes - node_filesystem_free_bytes) / node_filesystem_size_bytes > 0.95
+        for: 2m
+        labels:
+          severity: critical
+          service: system
+        annotations:
+          summary: "Uso crítico de disco"
+          description: "Uso de disco está acima de 95%"
+
+      # ================================
+      # CPU ALERTS
+      # ================================
+      - alert: HighCPUUsage
+        expr: 100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 5m
+        labels:
+          severity: warning
+          service: system
+        annotations:
+          summary: "Alto uso de CPU"
+          description: "Uso de CPU está acima de 80%"
+
+  # ================================
+  # DOCKER ALERTS
+  # ================================
+  - name: docker
+    rules:
+      # ================================
+      # CONTAINER ALERTS
+      # ================================
+      - alert: ContainerDown
+        expr: absent(container_last_seen)
+        for: 1m
+        labels:
+          severity: critical
+          service: docker
+        annotations:
+          summary: "Container parou"
+          description: "Um container parou de funcionar"
+
+      - alert: ContainerHighMemoryUsage
+        expr: (container_memory_usage_bytes / container_spec_memory_limit_bytes * 100) > 80
+        for: 5m
+        labels:
+          severity: warning
+          service: docker
+        annotations:
+          summary: "Container com alto uso de memória"
+          description: "Container está usando mais de 80% da memória alocada"
+
+      - alert: ContainerHighCPUUsage
+        expr: (rate(container_cpu_usage_seconds_total[5m]) * 100) > 80
+        for: 5m
+        labels:
+          severity: warning
+          service: docker
+        annotations:
+          summary: "Container com alto uso de CPU"
+          description: "Container está usando mais de 80% da CPU"
+
+  # ================================
+  # RECORDING RULES
+  # ================================
+  - name: godofreda-metrics
+    rules:
+      # ================================
+      # API METRICS
+      # ================================
+      - record: godofreda:http_requests_total
+        expr: sum(rate(http_requests_total{job="godofreda-api"}[5m])) by (method, status)
+
+      - record: godofreda:http_request_duration_seconds
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{job="godofreda-api"}[5m]))
+
+      - record: godofreda:active_connections
+        expr: sum(rate(http_requests_total{job="godofreda-api"}[1m])) by (instance)
+
+      # ================================
+      # TTS METRICS
+      # ================================
+      - record: godofreda:tts_requests_total
+        expr: sum(rate(tts_requests_total[5m])) by (status)
+
+      - record: godofreda:tts_generation_duration_seconds
+        expr: histogram_quantile(0.95, rate(tts_generation_duration_seconds_bucket[5m]))
+
+      # ================================
+      # LLM METRICS
+      # ================================
+      - record: godofreda:llm_requests_total
+        expr: sum(rate(llm_requests_total[5m])) by (status)
+
+      - record: godofreda:llm_response_duration_seconds
+        expr: histogram_quantile(0.95, rate(llm_response_duration_seconds_bucket[5m])) 

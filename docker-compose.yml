@@ -1,0 +1,296 @@
+# ================================
+# GODOFREDA DOCKER COMPOSE
+# ================================
+# Configuração para o sistema Godofreda IA VTuber
+# Inclui API FastAPI, Dashboard React e serviços auxiliares
+# ================================
+
+
+
+# ================================
+# REDES
+# ================================
+networks:
+  godofreda-network:
+    driver: bridge
+    name: godofreda-network
+    labels:
+      - "com.godofreda.description=Godofreda internal network"
+
+# ================================
+# SERVIÇOS
+# ================================
+services:
+  # ================================
+  # API PRINCIPAL - GODOFREDA
+  # ================================
+  godofreda-api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      args:
+        - BUILDKIT_INLINE_CACHE=1
+    container_name: godofreda-api
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./app:/app:ro  # Read-only para código
+      - tts_cache:/app/tts_models:rw  # Cache de modelos TTS
+      - tts_temp:/app/tts_temp:rw  # Arquivos temporários
+      - logs:/app/logs:rw  # Logs da aplicação
+    environment:
+      # Configurações do TTS
+      - TTS_MODEL=${TTS_MODEL:-tts_models/multilingual/multi-dataset/xtts_v2}
+      - COQUI_TOS_AGREED=${COQUI_TOS_AGREED:-1}
+      
+      # Configurações da API
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000,http://localhost:8501}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - NUMBA_CACHE_DIR=/tmp/numba_cache
+      
+      # Configurações do LLM
+      - OLLAMA_HOST=${OLLAMA_HOST:-http://ollama:11434}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-chatbode:7b}
+      
+      # Configurações de limpeza
+      - CLEANUP_INTERVAL_HOURS=${CLEANUP_INTERVAL_HOURS:-1}
+      - FILE_MAX_AGE_HOURS=${FILE_MAX_AGE_HOURS:-1}
+      - MAX_FILE_SIZE_MB=${MAX_FILE_SIZE_MB:-50}
+    networks:
+      - godofreda-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '2.0'
+        reservations:
+          memory: 2G
+          cpus: '1.0'
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    labels:
+      - "com.godofreda.service=api"
+      - "com.godofreda.version=1.0.0"
+      - "com.godofreda.description=Godofreda API - IA VTuber"
+    user: "godofreda:godofreda"
+    security_opt:
+      - no-new-privileges:true
+    read_only: false
+    tmpfs:
+      - /tmp:noexec,nosuid,size=100m
+
+  # ================================
+  # DASHBOARD FRONTEND
+  # ================================
+  godofreda-dashboard:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        - BUILDKIT_INLINE_CACHE=1
+    container_name: godofreda-dashboard
+    ports:
+      - "3000:3000"
+    environment:
+      - REACT_APP_API_URL=${REACT_APP_API_URL:-http://localhost:8000}
+      - REACT_APP_GRAFANA_URL=${REACT_APP_GRAFANA_URL:-http://localhost:3001}
+      - REACT_APP_PROMETHEUS_URL=${REACT_APP_PROMETHEUS_URL:-http://localhost:9090}
+      - NODE_ENV=${NODE_ENV:-production}
+      - GENERATE_SOURCEMAP=${GENERATE_SOURCEMAP:-false}
+    depends_on:
+      godofreda-api:
+        condition: service_healthy
+    networks:
+      - godofreda-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '0.5'
+        reservations:
+          memory: 512M
+          cpus: '0.25'
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+    labels:
+      - "com.godofreda.service=dashboard"
+      - "com.godofreda.version=1.0.0"
+      - "com.godofreda.description=Godofreda Dashboard - Interface Web"
+    user: "nginx"
+    security_opt:
+      - no-new-privileges:true
+    read_only: false
+    tmpfs:
+      - /tmp:noexec,nosuid,size=50m
+
+  # ================================
+  # OLLAMA - MODELO DE LINGUAGEM
+  # ================================
+  ollama:
+    image: ollama/ollama:latest
+    container_name: godofreda-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+      - OLLAMA_ORIGINS=*
+    networks:
+      - godofreda-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/version"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+          cpus: '4.0'
+        reservations:
+          memory: 4G
+          cpus: '2.0'
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
+    labels:
+      - "com.godofreda.service=ollama"
+      - "com.godofreda.version=latest"
+      - "com.godofreda.description=Ollama LLM Service"
+    security_opt:
+      - no-new-privileges:true
+
+  # ================================
+  # REDIS - CACHE E SESSÕES
+  # ================================
+  redis:
+    image: redis:7-alpine
+    container_name: godofreda-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    networks:
+      - godofreda-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    labels:
+      - "com.godofreda.service=redis"
+      - "com.godofreda.version=7-alpine"
+      - "com.godofreda.description=Redis Cache Service"
+    security_opt:
+      - no-new-privileges:true
+
+# ================================
+# VOLUMES
+# ================================
+volumes:
+  # Cache de modelos TTS
+  tts_cache:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./app/tts_models
+    labels:
+      - "com.godofreda.volume=tts_cache"
+      - "com.godofreda.description=TTS models cache"
+  
+  # Arquivos temporários TTS
+  tts_temp:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./app/tts_temp
+    labels:
+      - "com.godofreda.volume=tts_temp"
+      - "com.godofreda.description=TTS temporary files"
+  
+  # Logs da aplicação
+  logs:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./logs
+    labels:
+      - "com.godofreda.volume=logs"
+      - "com.godofreda.description=Application logs"
+  
+  # Modelos Ollama
+  ollama_models:
+    driver: local
+    labels:
+      - "com.godofreda.volume=ollama_models"
+      - "com.godofreda.description=Ollama LLM models"
+  
+  # Dados Redis
+  redis_data:
+    driver: local
+    labels:
+      - "com.godofreda.volume=redis_data"
+      - "com.godofreda.description=Redis data persistence"
+
+# ================================
+# CONFIGURAÇÕES GLOBAIS
+# ================================
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+# ================================
+# NOTAS DE USO
+# ================================
+# Para usar este compose:
+# 1. Copie .env.example para .env e configure as variáveis
+# 2. Execute: docker-compose up -d
+# 3. Acesse: http://localhost:3000 (Dashboard)
+# 4. API: http://localhost:8000
+# ================================

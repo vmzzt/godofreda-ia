@@ -1,0 +1,255 @@
+# ================================
+# GODOFREDA PROMTAIL CONFIGURATION
+# ================================
+# Configuração de coleta e envio de logs
+# ================================
+
+# ================================
+# CONFIGURAÇÕES DO SERVIDOR
+# ================================
+server:
+  http_listen_port: 9080
+  http_listen_address: 0.0.0.0
+  grpc_listen_port: 0
+  grpc_listen_address: 0.0.0.0
+  graceful_shutdown_timeout: 30s
+  read_timeout: 30s
+  write_timeout: 30s
+
+# ================================
+# CONFIGURAÇÕES DE POSIÇÃO
+# ================================
+positions:
+  filename: /tmp/positions.yaml
+  sync_period: 10s
+
+# ================================
+# CONFIGURAÇÕES DE CLIENTES
+# ================================
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+    batchwait: 1s
+    batchsize: 1024
+    timeout: 10s
+    retry_on_failure:
+      enabled: true
+      initial_delay: 1s
+      max_delay: 5s
+      max_retries: 10
+    rate_limit: 1000
+    rate_limit_burst: 2000
+    external_labels:
+      service: godofreda
+      environment: production
+      version: "1.0.0"
+
+# ================================
+# CONFIGURAÇÕES DE SCRAPE
+# ================================
+scrape_configs:
+  # ================================
+  # LOGS DO SISTEMA
+  # ================================
+  - job_name: system
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: varlogs
+          service: system
+          level: info
+          __path__: /var/log/*log
+    pipeline_stages:
+      - json:
+          expressions:
+            timestamp: timestamp
+            level: level
+            message: message
+            service: service
+      - labels:
+          level:
+          service:
+      - timestamp:
+          source: timestamp
+          format: RFC3339Nano
+      - match:
+          selector: '{job="varlogs"}'
+          stages:
+            - drop:
+                source: level
+                expression: "debug"
+
+  # ================================
+  # LOGS DE CONTAINERS DOCKER
+  # ================================
+  - job_name: containers
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: containerlogs
+          service: docker
+          level: info
+          __path__: /var/lib/docker/containers/*/*log
+    pipeline_stages:
+      - json:
+          expressions:
+            timestamp: time
+            level: level
+            message: log
+            container: stream
+      - labels:
+          level:
+          container:
+      - timestamp:
+          source: timestamp
+          format: RFC3339Nano
+      - match:
+          selector: '{job="containerlogs"}'
+          stages:
+            - drop:
+                source: level
+                expression: "debug"
+
+  # ================================
+  # LOGS DA GODOFREDA
+  # ================================
+  - job_name: godofreda
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: godofreda
+          service: godofreda-api
+          level: info
+          __path__: /var/log/godofreda/*.log
+    pipeline_stages:
+      - json:
+          expressions:
+            timestamp: timestamp
+            level: level
+            message: message
+            service: service
+            function: function
+            line: line
+      - labels:
+          level:
+          service:
+          function:
+      - timestamp:
+          source: timestamp
+          format: RFC3339Nano
+      - match:
+          selector: '{job="godofreda"}'
+          stages:
+            - drop:
+                source: level
+                expression: "debug"
+
+  # ================================
+  # LOGS DE MONITORAMENTO
+  # ================================
+  - job_name: monitoring
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: monitoring
+          service: prometheus
+          level: info
+          __path__: /var/log/monitoring/*.log
+    pipeline_stages:
+      - json:
+          expressions:
+            timestamp: timestamp
+            level: level
+            message: message
+            service: service
+      - labels:
+          level:
+          service:
+      - timestamp:
+          source: timestamp
+          format: RFC3339Nano
+
+  # ================================
+  # LOGS DE NGINX
+  # ================================
+  - job_name: nginx
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: nginx
+          service: nginx
+          level: info
+          __path__: /var/log/nginx/*.log
+    pipeline_stages:
+      - regex:
+          expression: '^(?P<ip>[\d.]+) - (?P<user>[^ ]+) \[(?P<timestamp>[^\]]+)\] "(?P<method>[^ ]+) (?P<path>[^ ]+) (?P<protocol>[^"]+)" (?P<status>\d+) (?P<bytes>\d+) "(?P<referer>[^"]*)" "(?P<useragent>[^"]*)"'
+      - labels:
+          method:
+          status:
+          path:
+      - timestamp:
+          source: timestamp
+          format: "02/Jan/2006:15:04:05 -0700"
+
+# ================================
+# CONFIGURAÇÕES DE LIMITES
+# ================================
+limits_config:
+  enforce_metric_name: false
+  reject_old_samples: true
+  reject_old_samples_max_age: 168h
+
+# ================================
+# CONFIGURAÇÕES DE PERFORMANCE
+# ================================
+performance:
+  max_concurrent_requests: 100
+  max_concurrent_connections: 50
+  max_concurrent_streams: 10
+
+# ================================
+# CONFIGURAÇÕES DE LOGGING
+# ================================
+logging:
+  level: info
+  format: logfmt
+  disable_caller: false
+  disable_stacktrace: false
+  development: false
+  encoding: json
+  outputPaths:
+    - stdout
+  errorOutputPaths:
+    - stderr
+  encoderConfig:
+    timeKey: timestamp
+    levelKey: level
+    nameKey: logger
+    callerKey: caller
+    messageKey: message
+    stacktraceKey: stacktrace
+    levelEncoder: lowercase
+    timeEncoder: iso8601
+    durationEncoder: seconds
+    callerEncoder: short
+
+# ================================
+# CONFIGURAÇÕES DE MÉTRICAS
+# ================================
+metrics:
+  global:
+    scrape_interval: 15s
+    evaluation_interval: 15s
+  configs:
+    - name: promtail
+      scrape_configs:
+        - job_name: promtail
+          static_configs:
+            - targets:
+                - localhost:9080
+          metrics_path: /metrics
+          scrape_interval: 15s 

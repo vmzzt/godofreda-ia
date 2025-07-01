@@ -1,0 +1,220 @@
+# ================================
+# GODOFREDA ALERTMANAGER CONFIGURATION
+# ================================
+# Configuração de alertas e notificações
+# ================================
+
+global:
+  # ================================
+  # CONFIGURAÇÕES GLOBAIS
+  # ================================
+  resolve_timeout: 5m
+  smtp_smarthost: 'localhost:587'
+  smtp_from: 'godofreda@localhost'
+  smtp_auth_username: 'godofreda'
+  smtp_auth_password: 'godofreda123'
+  smtp_require_tls: true
+  
+  # ================================
+  # CONFIGURAÇÕES DE WEBHOOK
+  # ================================
+  webhook_url: 'http://godofreda-api:8000/webhook/alerts'
+  webhook_timeout: 10s
+  
+  # ================================
+  # CONFIGURAÇÕES DE SLACK (OPCIONAL)
+  # ================================
+  slack_api_url: 'https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK'
+
+# ================================
+# ROTEAMENTO DE ALERTAS
+# ================================
+route:
+  # ================================
+  # CONFIGURAÇÕES DE GRUPO
+  # ================================
+  group_by: ['alertname', 'service', 'severity']
+  group_wait: 10s
+  group_interval: 10s
+  repeat_interval: 1h
+  
+  # ================================
+  # RECEPTOR PADRÃO
+  # ================================
+  receiver: 'godofreda-webhook'
+  
+  # ================================
+  # ROTAS ESPECÍFICAS
+  # ================================
+  routes:
+    # ================================
+    # ALERTAS CRÍTICOS - EMAIL + WEBHOOK
+    # ================================
+    - match:
+        severity: critical
+      receiver: 'godofreda-critical'
+      group_wait: 0s
+      group_interval: 5s
+      repeat_interval: 30m
+    
+    # ================================
+    # ALERTAS DE SISTEMA - EMAIL
+    # ================================
+    - match:
+        service: system
+      receiver: 'godofreda-system'
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 4h
+    
+    # ================================
+    # ALERTAS DE PERFORMANCE - WEBHOOK
+    # ================================
+    - match:
+        severity: warning
+      receiver: 'godofreda-performance'
+      group_wait: 1m
+      group_interval: 5m
+      repeat_interval: 2h
+
+# ================================
+# RECEPTORES
+# ================================
+receivers:
+  # ================================
+  # WEBHOOK PADRÃO
+  # ================================
+  - name: 'godofreda-webhook'
+    webhook_configs:
+      - url: 'http://godofreda-api:8000/webhook/alerts'
+        send_resolved: true
+        http_config:
+          timeout: 10s
+          tls_config:
+            insecure_skip_verify: false
+        max_alerts: 0
+
+  # ================================
+  # ALERTAS CRÍTICOS
+  # ================================
+  - name: 'godofreda-critical'
+    webhook_configs:
+      - url: 'http://godofreda-api:8000/webhook/alerts'
+        send_resolved: true
+        http_config:
+          timeout: 5s
+    email_configs:
+      - to: 'admin@godofreda.ai'
+        send_resolved: true
+        headers:
+          subject: '🚨 ALERTA CRÍTICO - Godofreda'
+        html: |
+          <h2>🚨 Alerta Crítico Detectado</h2>
+          <p><strong>Serviço:</strong> {{ .GroupLabels.service }}</p>
+          <p><strong>Alerta:</strong> {{ .GroupLabels.alertname }}</p>
+          <p><strong>Instância:</strong> {{ .GroupLabels.instance }}</p>
+          <p><strong>Descrição:</strong> {{ .CommonAnnotations.description }}</p>
+          <p><strong>Início:</strong> {{ .StartsAt }}</p>
+          <hr>
+          <p><em>Godofreda Monitoring System</em></p>
+
+  # ================================
+  # ALERTAS DE SISTEMA
+  # ================================
+  - name: 'godofreda-system'
+    email_configs:
+      - to: 'admin@godofreda.ai'
+        send_resolved: true
+        headers:
+          subject: '⚠️ Alerta de Sistema - Godofreda'
+        html: |
+          <h2>⚠️ Alerta de Sistema</h2>
+          <p><strong>Serviço:</strong> {{ .GroupLabels.service }}</p>
+          <p><strong>Alerta:</strong> {{ .GroupLabels.alertname }}</p>
+          <p><strong>Descrição:</strong> {{ .CommonAnnotations.description }}</p>
+          <hr>
+          <p><em>Godofreda Monitoring System</em></p>
+
+  # ================================
+  # ALERTAS DE PERFORMANCE
+  # ================================
+  - name: 'godofreda-performance'
+    webhook_configs:
+      - url: 'http://godofreda-api:8000/webhook/alerts'
+        send_resolved: true
+        http_config:
+          timeout: 10s
+
+  # ================================
+  # SLACK (OPCIONAL)
+  # ================================
+  - name: 'godofreda-slack'
+    slack_configs:
+      - api_url: 'https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK'
+        channel: '#godofreda-alerts'
+        send_resolved: true
+        title: '🚨 Alerta Godofreda'
+        text: |
+          *Alerta:* {{ .GroupLabels.alertname }}
+          *Serviço:* {{ .GroupLabels.service }}
+          *Severidade:* {{ .GroupLabels.severity }}
+          *Descrição:* {{ .CommonAnnotations.description }}
+          *Início:* {{ .StartsAt }}
+
+# ================================
+# REGRAS DE INIBIÇÃO
+# ================================
+inhibit_rules:
+  # ================================
+  # INIBIR ALERTAS DE WARNING QUANDO CRÍTICO
+  # ================================
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['alertname', 'service', 'instance']
+  
+  # ================================
+  # INIBIR ALERTAS DE SISTEMA QUANDO CONTAINER DOWN
+  # ================================
+  - source_match:
+      alertname: 'ContainerDown'
+    target_match:
+      service: 'system'
+    equal: ['instance']
+
+# ================================
+# TEMPLATES
+# ================================
+templates:
+  - '/etc/alertmanager/template/*.tmpl'
+
+# ================================
+# CONFIGURAÇÕES DE TIME
+# ================================
+time_intervals:
+  # ================================
+  # HORÁRIO DE TRABALHO (9h-18h)
+  # ================================
+  - name: workdays
+    time_intervals:
+      - weekdays: ['monday:friday']
+        times:
+          - start_time: 09:00
+            end_time: 18:00
+  
+  # ================================
+  # FINS DE SEMANA
+  # ================================
+  - name: weekends
+    time_intervals:
+      - weekdays: ['saturday', 'sunday']
+  
+  # ================================
+  # HORÁRIO NOTURNO (22h-6h)
+  # ================================
+  - name: night
+    time_intervals:
+      - times:
+          - start_time: 22:00
+            end_time: 06:00 

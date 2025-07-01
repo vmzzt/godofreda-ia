@@ -1,0 +1,242 @@
+version: '3.8'
+
+services:
+  # ================================
+  # APLICAÇÃO PRINCIPAL - GODOFREDA
+  # ================================
+  godofreda:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: godofreda-api
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./app/tts_temp:/app/tts_temp
+      - ./app/logs:/app/logs
+    environment:
+      - TTS_MODEL=tts_models/multilingual/multi-dataset/xtts_v2
+      - COQUI_TOS_AGREED=1
+      - CORS_ORIGINS=http://localhost:8501,http://localhost:3000
+    networks:
+      - godofreda-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+    restart: unless-stopped
+
+  # ================================
+  # PAINEL DE CONTROLE - STREAMLIT
+  # ================================
+  control-panel:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.streamlit
+    container_name: godofreda-panel
+    ports:
+      - "8501:8501"
+    environment:
+      - STREAMLIT_SERVER_PORT=8501
+      - STREAMLIT_SERVER_ADDRESS=0.0.0.0
+    volumes:
+      - ./panel:/app
+    networks:
+      - godofreda-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 512M
+    restart: unless-stopped
+
+  # ================================
+  # MONITORAMENTO - PROMETHEUS
+  # ================================
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: godofreda-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./monitoring/prometheus/rules:/etc/prometheus/rules
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    networks:
+      - godofreda-network
+    restart: unless-stopped
+
+  # ================================
+  # VISUALIZAÇÃO - GRAFANA
+  # ================================
+  grafana:
+    image: grafana/grafana:latest
+    container_name: godofreda-grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=godofreda123
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-simple-json-datasource
+    depends_on:
+      - prometheus
+    networks:
+      - godofreda-network
+    restart: unless-stopped
+
+  # ================================
+  # MÉTRICAS DE CONTAINERS - cADVISOR
+  # ================================
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: godofreda-cadvisor
+    ports:
+      - "8080:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    privileged: true
+    devices:
+      - /dev/kmsg
+    networks:
+      - godofreda-network
+    restart: unless-stopped
+
+  # ================================
+  # MÉTRICAS DO HOST - NODE EXPORTER
+  # ================================
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: godofreda-node-exporter
+    ports:
+      - "9100:9100"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.rootfs=/rootfs'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    networks:
+      - godofreda-network
+    restart: unless-stopped
+
+  # ================================
+  # ALERTAS - ALERTMANAGER
+  # ================================
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: godofreda-alertmanager
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml
+      - alertmanager_data:/alertmanager
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+      - '--web.external-url=http://localhost:9093'
+    networks:
+      - godofreda-network
+    restart: unless-stopped
+
+  # ================================
+  # GERENCIAMENTO DE CONTAINERS - PORTAINER
+  # ================================
+  portainer:
+    image: portainer/portainer-ce:latest
+    container_name: godofreda-portainer
+    ports:
+      - "9000:9000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer_data:/data
+    networks:
+      - godofreda-network
+    restart: unless-stopped
+
+  # ================================
+  # LOGS CENTRALIZADOS - LOKI
+  # ================================
+  loki:
+    image: grafana/loki:latest
+    container_name: godofreda-loki
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./monitoring/loki/loki.yml:/etc/loki/local-config.yaml
+      - loki_data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+    networks:
+      - godofreda-network
+    restart: unless-stopped
+
+  # ================================
+  # COLETA DE LOGS - PROMTAIL
+  # ================================
+  promtail:
+    image: grafana/promtail:latest
+    container_name: godofreda-promtail
+    volumes:
+      - ./monitoring/promtail/promtail.yml:/etc/promtail/config.yml
+      - ./logs:/var/log/godofreda
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: -config.file=/etc/promtail/config.yml
+    networks:
+      - godofreda-network
+    restart: unless-stopped
+
+# ================================
+# VOLUMES
+# ================================
+volumes:
+  tts_cache:
+  prometheus_data:
+  grafana_data:
+  alertmanager_data:
+  portainer_data:
+  loki_data:
+
+# ================================
+# REDES
+# ================================
+networks:
+  godofreda-network:
+    driver: bridge 
